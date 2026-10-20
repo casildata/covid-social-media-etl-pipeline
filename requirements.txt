@@ -1,0 +1,4 @@
+pandas>=2.0
+numpy>=1.24
+requests>=2.31   # only used if data/reference/state_fips.txt is missing
+matplotlib>=3.7  # optional, for docs/figures

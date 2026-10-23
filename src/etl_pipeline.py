@@ -52,9 +52,9 @@ def apply_date_format(df, col='Date', span=False):
     # get column index number if col in df.columns
     index_no = df.columns.get_loc(col) if col in df.columns.tolist() else -1
     if index_no > -1 and not pd.api.types.is_datetime64_any_dtype(df[col]):
-        df[col] = pd.to_datetime(df[col]).dt.floor('d')
+        df[col] = pd.to_datetime(df[col]).dt.floor('D')
     elif index_no > -1:
-        df[col] = df[col].dt.floor('d')
+        df[col] = df[col].dt.floor('D')
     if span and index_no > -1:
         # spans the year, month, day to seperate columns when true
         df.insert(index_no+1, col+'_Year', df[col].dt.year.map("{:02}".format))
@@ -85,9 +85,9 @@ def apply_timeperiod(tp, df, col_name):
         # create boolean series to record truths
         truths = df[col_name].between(start, end)
         df.loc[truths, 'TimePeriod'] = tp.loc[i, 'TimePeriod']
-    # all other time periods are marked as follows
+    # dates before the survey are marked -1; dates after it get no period and drop out of the groupbys
     df.loc[df[col_name] < start_min, 'TimePeriod'] = -1
-    df.loc[df[col_name] > end_max, 'TimePeriod'] = i
+    df.loc[df[col_name] > end_max, 'TimePeriod'] = np.nan
 
 def clean_columns(df):
     df.columns = ["".join(x.title().split()) for x in df.columns]
@@ -96,7 +96,7 @@ def clean_columns(df):
 df_covid = pd.read_csv(RAW / FDICT['covid'])
 df_mentalhealth = pd.read_csv(RAW / FDICT['mentalhealth']) 
 df_instagram = pd.read_csv(RAW / FDICT['insta'])
-df_tweets = pd.read_csv(RAW / FDICT['twitter'])
+df_tweets = pd.read_csv(RAW / FDICT['twitter'], low_memory=False)
 df_states = load_states()
 
 # =============================================================================
@@ -112,7 +112,6 @@ clean_columns(df_states)
 # =============================================================================
 # changing head due to mispelled word and ease view
 df_cleaning_instagram = df_instagram.copy()
-#del df_instagram
 
 drop = 'Year,Month,Day,UserUuid,DaysPassedFromPost,LikesScore,Type,Hour,Minute'.split(',')
 for x in drop:
@@ -122,6 +121,7 @@ df_cleaning_instagram.rename(columns = {'DatePosted':'Date',
                                         'NumerOfTags': 'InstagramTags', 
                                         'Likes': 'InstagramLikes', 
                                         'NumerOfComments' : 'InstagramComments'}, inplace = True)
+df_cleaning_instagram['InstagramPosts'] = 1  # summed per day below; the dataset's daily volume grows over time
 apply_date_format(df_cleaning_instagram, 'Date', True)
 
 df_cleaning_instagram.set_index('Date', inplace=True)
@@ -153,10 +153,7 @@ df_cleaning_tweets.set_index('Date', inplace=True)
 df_cleaning_tweets = df_cleaning_tweets.sort_index().loc['2019-04-24':'2021-02-27', :]
 df_cleaning_tweets.reset_index(inplace=True)
 
-# how to split the hashtag
-# df_cleaning_tweets['hashtext'] = ""
-# df_cleaning_tweets['hashtext'][df_cleaning_tweets['Hashtags'] != "[]"] = df_cleaning_tweets['Hashtags']
-# df_cleaning_tweets['Tags'] = 0
+# Hashtags holds a list literal such as "['covid', 'economy']": two quotes per tag
 df_cleaning_tweets['EconTags'] = df_cleaning_tweets['Hashtags'].str.count('\'') / 2
 
 for x in 'EconReplies, EconRetweets, EconLikes, EconTags'.split(', '):
@@ -169,16 +166,13 @@ df_cleaning_tweets.reset_index(inplace=True)
 # =============================================================================
 # transform covid confirmed cases
 # =============================================================================
-df_cleaning_covid = df_covid.drop(columns='countyFIPS').groupby(['State', 'StateFIPS']).sum(numeric_only=True)
+df_cleaning_covid = df_covid.drop(columns='countyFIPS').groupby(['State', 'StateFIPS']).sum(numeric_only=True).copy()  # consolidated, or diff() warns about a fragmented frame
 df_cleaning_covid = df_cleaning_covid.diff(axis=1)
 df_cleaning_covid.reset_index(inplace=True)
-# df_covid_cleaning = df_covid_cleaning1.melt(id_vars=['State', 'StateFIPS'], value_vars=df_covid_cleaning1.columns[2:], var_name='Date', value_name='PositiveCases')
 df_cleaning_covid = df_cleaning_covid.melt(id_vars=['State', 'StateFIPS'], value_vars=df_cleaning_covid.columns[2:], var_name='Date', value_name='PositiveCases')
 apply_date_format(df_cleaning_covid, 'Date', True)
 df_cleaning_covid.fillna(0, inplace=True)
-
-# df_cleaning_covid["Date"] = df_cleaning_covid['Date'].astype('datetime64')
-# need to get time period from mental health to further process
+# the survey's time periods are needed to group these further
 
 # =============================================================================
 # Isolate time periods from mental health
@@ -212,10 +206,6 @@ apply_timeperiod_str(df_time_period, 'TimePeriodStartDate', 'TimePeriodEndDate')
 # clean mental health dataframe
 # =============================================================================
 # change the indicator of mentalhealth for easier viewing and to extract anxiety
-#df_mentalhealth['Indicator'][df_mentalhealth['Indicator'] == "Symptoms of Depressive Disorder"] = "depression"
-#df_mentalhealth['Indicator'][df_mentalhealth['Indicator'] == "Symptoms of Anxiety Disorder"] = "anxiety"
-#df_mentalhealth['Indicator'][df_mentalhealth['Indicator'] == "Symptoms of Anxiety Disorder or Depressive Disorder"] = "both"
-
 df_mentalhealth.loc[df_mentalhealth['Indicator'] == "Symptoms of Depressive Disorder", 'Indicator'] = "depression"
 df_mentalhealth.loc[df_mentalhealth['Indicator'] == "Symptoms of Anxiety Disorder", 'Indicator'] = "anxiety"
 df_mentalhealth.loc[df_mentalhealth['Indicator'] == "Symptoms of Anxiety Disorder or Depressive Disorder", 'Indicator'] = "both"
@@ -323,6 +313,12 @@ df_covid_anxiety_byperiod = df_covid_anxiety_final.drop(columns='State_x').group
 df_all_final = df_covid_social_byperiod.merge(df_covid_anxiety_byperiod, how='inner', on='TimePeriod')
 df_all_final.drop(columns='PositiveCases_x', inplace=True)
 df_all_final.rename(columns={'PositiveCases_y': 'PositiveCases'}, inplace=True)
+
+# periods last 6 to 28 days, so totals need these lengths to be compared per day
+period_days = (df_time_period1['TimePeriodEndDate'] - df_time_period1['TimePeriodStartDate']).dt.days + 1
+df_all_final.insert(0, 'PeriodDays', period_days.set_axis(df_time_period1['TimePeriod']))  # length of the survey period
+df_all_final.insert(1, 'SocialDays', df_covid_social_final.groupby('TimePeriod').size())   # days with social data
+df_all_final.reset_index(inplace=True)
 
 # write to file
 df_all_final.to_csv(OUT / FDICT['out3'], sep=',', index = False)

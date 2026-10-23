@@ -6,6 +6,7 @@
 - Updated for pandas 2.x/3.x compatibility.
 - Improved gap-period imputation to run per state (`groupby('State').shift()`), so a missing period can never borrow a neighbouring state's value.
 - Made output ordering deterministic.
+- The dependency check no longer installs packages; it prints the `pip` command and stops.
 
 **Verification:** re-ran on the original raw data with pandas 3.0.5; all three outputs match the 2021 deliverable (max numeric difference < 1e-13).
 

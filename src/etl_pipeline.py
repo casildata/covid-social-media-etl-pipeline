@@ -15,7 +15,7 @@ from pathlib import Path
 
 from check_requirements import check_requirements
 
-# Before the third-party imports below, so missing packages can be installed first.
+# Before the third-party imports below, so a missing package stops with the install command.
 check_requirements(Path(__file__).resolve().parents[1] / "requirements.txt")
 
 import numpy as np  # noqa: E402

@@ -91,11 +91,11 @@ These are correlations between two time series that share a trend, with n = 27, 
 
 ### Install
 
-Missing or outdated packages from `requirements.txt` are installed automatically when you run the pipeline; from a terminal it asks first. To install everything up front instead:
-
 ```bash
 pip install -r requirements.txt
 ```
+
+The pipeline never installs anything. If a package is missing or too old, it stops and prints the `pip` command to run.
 
 ### Run
 
@@ -113,7 +113,7 @@ Three CSVs in `data/processed/`: `final_covid_anxiety.csv` (state × period), `f
 covid-social-media-etl-pipeline/
 ├── src/
 │   ├── etl_pipeline.py          # extract → transform → load
-│   └── check_requirements.py    # installs missing packages from requirements.txt
+│   └── check_requirements.py    # stops with the pip command if a package is missing
 ├── data/
 │   ├── README.md                # where to download each raw file
 │   ├── raw/                     # .gitignored (third-party / contains user identifiers)

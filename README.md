@@ -2,6 +2,7 @@
 
 **A Python/pandas pipeline that integrates four public datasets with incompatible grains, keys and date formats into analysis-ready tables, then explores how pandemic case counts tracked reported anxiety and social media engagement.**
 
+[![pipeline](https://github.com/casildata/covid-social-media-etl-pipeline/actions/workflows/pipeline.yml/badge.svg)](https://github.com/casildata/covid-social-media-etl-pipeline/actions/workflows/pipeline.yml)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![pandas](https://img.shields.io/badge/pandas-2.x%20%7C%203.x-150458?logo=pandas)
 ![Type](https://img.shields.io/badge/type-ETL%20%7C%20Data%20Integration-informational)
@@ -16,6 +17,7 @@
 - **Pipeline:** integrates four public datasets (COVID-19 cases, a CDC anxiety survey, Instagram posts and @TheEconomist tweets) plus a Census state reference, each with a different grain, key and date format, into three analysis-ready tables.
 - **Finding:** new COVID-19 cases and the share of adults reporting anxiety symptoms moved together across 27 survey periods (**Pearson r = 0.80**; 0.83 per day, 0.54 on changes between periods). This is a correlation, not evidence of causation.
 - **Privacy:** user IDs, usernames and post text are dropped before aggregation; only aggregated tables with no PII are published.
+- **Quality:** each raw file's columns, the survey calendar and the state × period grid are checked on every run; 19 pytest tests cover the transforms on hand-made rows and the published outputs. CI runs them on Python 3.14 and 3.10 (pandas 3 and 2) and regenerates every correlation in [`docs/results.md`](docs/results.md).
 - **Reproducibility:** the 2026 refactor reproduced the 2021 deliverable's outputs exactly; the raw files are identified by SHA-256 in [`data/README.md`](data/README.md).
 
 ---
@@ -72,9 +74,9 @@ flowchart TB
 
 ## Results
 
-![New COVID-19 cases vs reported anxiety](docs/figures/cases_vs_anxiety.png)
+![New COVID-19 cases per day vs reported anxiety](docs/figures/cases_vs_anxiety.png)
 
-Survey periods last 6 to 28 days, so totals partly measure period length. `final_all_combined.csv` carries `PeriodDays` and `SocialDays` so each total can be compared per day.
+Survey periods last 6 to 28 days, so totals partly measure period length. `final_all_combined.csv` carries `PeriodDays` and `SocialDays` so each total can be compared per day. The full table, including the CDC's national estimate (r = 0.82 per day), is generated in [`docs/results.md`](docs/results.md).
 
 | Pair (27 survey periods) | Period totals | Per day | Changes between periods |
 |---|---|---|---|
@@ -90,7 +92,7 @@ Survey periods last 6 to 28 days, so totals partly measure period length. `final
 
 ## Limitations & lessons learned
 
-These are correlations between two time series that share a trend, with n = 27, so they are not evidence of causation. Two gap periods in the window (13 and 22) are longer than a normal survey window, so their totals are inflated (for example, the spike at period 13); per-day figures remove that effect. The anxiety series is the unweighted mean of 51 state estimates, not the CDC's national estimate. The Instagram data is a sample whose daily volume grows over time, so its totals say more about the dataset than about engagement. The Twitter data represents one publisher's engagement, not public social media use.
+These are correlations between two time series that share a trend, with n = 27, so they are not evidence of causation. Two gap periods in the window (13 and 22) are longer than a normal survey window, so their totals are inflated (period 13 covers 28 days); the figure and the per-day column use daily rates instead. The anxiety series is the unweighted mean of 51 state estimates; the CDC's national estimate (`NationalValue`, missing in the gap periods) gives similar correlations. The Instagram data is a sample whose daily volume grows over time, so its totals say more about the dataset than about engagement. The Twitter data represents one publisher's engagement, not public social media use.
 
 ## Getting started
 
@@ -110,40 +112,48 @@ The pipeline never installs anything. If a package is missing or too old, it sto
 ### Run
 
 ```bash
-python src/etl_pipeline.py
+python src/etl_pipeline.py   # raw files -> data/processed/ (about 5 s), logs row counts at each stage
+python src/report.py         # data/processed/ -> docs/results.md and the figure (no raw data needed)
+pip install pytest && python -m pytest   # 19 tests; also run without the raw data
 ```
+
+If a raw file is missing a column the pipeline needs, or the survey calendar has a gap or overlap, the run stops with a message naming the file and the problem.
 
 ### Output
 
-Three CSVs in `data/processed/`: `final_covid_anxiety.csv` (state × period), `final_covid_socialmedia.csv` (day) and `final_all_combined.csv` (period, with `PeriodDays` and `SocialDays` for per-day rates). Period −1 holds everything before the first survey period.
+Three CSVs in `data/processed/`: `final_covid_anxiety.csv` (state × period), `final_covid_socialmedia.csv` (day) and `final_all_combined.csv` (period, with `PeriodDays` and `SocialDays` for per-day rates, and the CDC national estimate as `NationalValue`). Period −1 holds everything before the first survey period.
 
 ## Repository structure
 
 ```
 covid-social-media-etl-pipeline/
 ├── src/
-│   ├── etl_pipeline.py          # extract → transform → load
+│   ├── etl_pipeline.py          # extract → transform → load, with row counts logged per stage
+│   ├── transforms.py            # the transform steps as functions (no file access)
+│   ├── checks.py                # data-quality checks: columns, survey calendar, grid, duplicates
+│   ├── report.py                # correlations → docs/results.md, and the figure
 │   └── check_requirements.py    # stops with the pip command if a package is missing
+├── tests/                       # transforms on hand-made rows; contract for the published outputs
 ├── data/
 │   ├── README.md                # where to download each raw file
 │   ├── raw/                     # .gitignored (third-party / contains user identifiers)
 │   ├── reference/state_fips.txt # Census state reference (public domain)
 │   └── processed/               # pipeline outputs, aggregated, no PII
+├── docs/results.md              # generated; CI fails if it changes
 ├── docs/figures/
-├── requirements.txt
+├── .github/workflows/           # tests on Python 3.14 and 3.10, results drift check, gitleaks
+├── requirements.txt             # minimum versions
+├── requirements-lock.txt        # exact versions behind the committed outputs
 ├── CHANGELOG.md
 └── LICENSE
 ```
 
 ## Skills demonstrated
 
-`ETL design` · `Data integration across mismatched grains` · `Reshaping (melt, cross join, merge)` · `Time-dimension modeling` · `Missing-data imputation` · `PII minimization` · `pandas`
+`ETL design` · `Data integration across mismatched grains` · `Reshaping (melt, cross join, merge)` · `Time-dimension modeling` · `Missing-data imputation` · `Data-quality checks` · `PII minimization` · `pandas` · `pytest` · `GitHub Actions`
 
 ## Roadmap
 
-- Split the pipeline into tested functions, with pytest on small synthetic inputs and CI.
-- Data-quality checks at run time: schema, row counts per stage, contiguous periods.
-- A script that generates the figure and a results file with every correlation.
 - Load into DuckDB or SQLite as a small star schema with incremental loads by date.
 - Lagged cross-correlation for the cases and anxiety series.
 
